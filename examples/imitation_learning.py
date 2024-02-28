@@ -5,7 +5,7 @@ from rlbench.action_modes.arm_action_modes import JointVelocity
 from rlbench.action_modes.gripper_action_modes import Discrete
 from rlbench.environment import Environment
 from rlbench.observation_config import ObservationConfig
-from rlbench.tasks import ReachTarget
+from rlbench.tasks import *
 
 
 class ImitationLearning(object):
@@ -31,11 +31,13 @@ env = Environment(
     headless=False)
 env.launch()
 
-task = env.get_task(ReachTarget)
+task = env.get_task(BasketballInHoop)
 
 il = ImitationLearning()
 
 demos = task.get_demos(2, live_demos=live_demos)  # -> List[List[Observation]]
+for obs in demos[0]._observations:
+    print(obs.gripper_pose)
 demos = np.array(demos).flatten()
 
 # An example of using the demos to 'train' using behaviour cloning loss.

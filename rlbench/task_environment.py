@@ -143,16 +143,19 @@ class TaskEnvironment(object):
                             [Observation], None] = None,
                         max_attempts: int = _MAX_DEMO_ATTEMPTS) -> List[Demo]:
         demos = []
+        desc, _ = self.reset()
         for i in range(amount):
             attempts = max_attempts
             while attempts > 0:
                 random_seed = np.random.get_state()
+                self.sample_variation()
+                index = np.random.randint(0,len(desc))
                 self.reset()
                 try:
                     demo = self._scene.get_demo(
                         callable_each_step=callable_each_step)
                     demo.random_seed = random_seed
-                    demos.append(demo)
+                    demos.append((demo,desc[index]))
                     break
                 except Exception as e:
                     attempts -= 1
