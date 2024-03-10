@@ -1,6 +1,7 @@
 import numpy as np
 import pickle
 import pathlib
+from scipy.spatial.transform import Rotation
 
 from rlbench.action_modes.action_mode import MoveArmThenGripper
 from rlbench.action_modes.arm_action_modes import JointVelocity, EndEffectorPoseViaIK
@@ -13,7 +14,7 @@ from rlbench.tasks import MT15_V1, MT30_V1, MT55_V1, MT100_V1
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--num_demos", type=int, default=5)
+parser.add_argument("--num_demos", type=int, default=2)
 args = parser.parse_args()
 
 def convert_to_snake_case(input_string):
@@ -27,8 +28,6 @@ def convert_to_snake_case(input_string):
 
     return ''.join(result)
 
-
-from transformations import quaternion_multiply, quaternion_conjugate
 
 def calculate_relative_pose(pose1, pose2):
     """
@@ -51,10 +50,12 @@ def calculate_relative_pose(pose1, pose2):
     delta_y = y2 - y1
     delta_z = z2 - z1
 
-    # Calculate relative rotation using quaternion operations
-    q1 = np.array([qx1, qy1, qz1, qw1])
-    q2_conjugate = quaternion_conjugate(np.array([qx2, qy2, qz2, qw2]))
-    relative_rotation = quaternion_multiply(q2_conjugate, q1)
+    # Construct rotation quaternions using scipy
+    rot1 = Rotation.from_quat([qx1, qy1, qz1, qw1])
+    rot2 = Rotation.from_quat([qx2, qy2, qz2, qw2])
+
+    # Calculate relative rotation using quaternion multiplication
+    relative_rotation = (rot2 * rot1.inv()).as_quat()
 
     # Extract the relative quaternion components
     delta_qx, delta_qy, delta_qz, delta_qw = relative_rotation
@@ -63,6 +64,10 @@ def calculate_relative_pose(pose1, pose2):
     relative_pose = [delta_x, delta_y, delta_z, delta_qx, delta_qy, delta_qz, delta_qw]
     return relative_pose
 
+def quaternion_to_euler(pose):
+    rr = Rotation.from_quat(pose[3:])
+    euler = rr.as_euler('xyz').tolist()
+    return pose[:3] + euler
 
 # To use 'saved' demos, set the path below, and set live_demos=False
 live_demos = True
@@ -84,7 +89,7 @@ demo_keys = ['front_depth', 'front_mask', 'front_point_cloud', 'front_rgb', 'gri
             'overhead_mask', 'overhead_point_cloud', 'overhead_rgb', 'right_shoulder_depth', 'right_shoulder_mask', \
             'right_shoulder_point_cloud', 'right_shoulder_rgb', 'task_low_dim_state', 'wrist_depth', 'wrist_mask', 'wrist_point_cloud', 'wrist_rgb']
 
-train_tasks = MT100_V1["train"]
+train_tasks = MT100_V1["train"][]
 
 anno_dict = {"episode":{"length":[]}, "language":{"task":[], "instruction":[]}}
 
@@ -96,12 +101,12 @@ for task in train_tasks:
     task = env.get_task(task)
 
     episode = dict({"actions":[]})
-    demos = task.get_demos(2, live_demos=live_demos)  # -> List[List[Observation]]
+    demos = task.get_demos(args.num_demos, live_demos=live_demos)  # -> List[List[Observation]]
     name = task.get_name()
     
     for j,traj in enumerate(demos):
         traj, lang = traj
-        anno_dict["episode"]["length"].append(len(traj))
+        anno_dict["episode"]["length"].append(len(traj)-1)
         anno_dict["language"]["task"].append(name)
         anno_dict["language"]["instruction"].append(lang)
         for i,step in enumerate(traj[:-1]):
@@ -109,20 +114,19 @@ for task in train_tasks:
                 if key not in episode:
                     episode[key] = []
                 episode[key].append(getattr(step, key))
-            action = calculate_relative_pose(task._robot.arm.get_tip().get_pose(), traj[i+1].gripper_pose) # The next frame gripper pose relative to the current gripper
+            action = quaternion_to_euler(calculate_relative_pose(task._robot.arm.get_tip().get_pose(), traj[i+1].gripper_pose)) # The next frame gripper pose relative to the current gripper
             action.append(step.gripper_open)
             episode["actions"].append(action)
             
-        with open("demos/episode_{}.pkl".format(total_num), "wb") as f:
-            np.save(f, episode)
+        with open("demos/episode_{}.npz".format(total_num), "wb") as f:
+            np.savez_compressed(f, episode)
         print('Done with {}, episode {}'.format(name, j))
+        total_num += 1
     print("=====================================")
     print("Done generating task {}".format(name))
-    print("=====================================")
-        
-    total_num += 1
+    print("=====================================") 
 
-with open("anno.npy", "wb") as f:
-    np.save(f, anno_dict)
+with open("demos/anno.npz", "wb") as f:
+    np.savez_compressed(f, anno_dict)
 
 env.shutdown()
