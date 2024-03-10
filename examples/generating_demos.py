@@ -114,8 +114,7 @@ for task in train_tasks:
             episode["actions"].append(action)
             
         with open("demos/episode_{}.pkl".format(total_num), "wb") as f:
-            pickle.dump(demos, f)
-    
+            np.save(f, episode)
         print('Done with {}, episode {}'.format(name, j))
     print("=====================================")
     print("Done generating task {}".format(name))
